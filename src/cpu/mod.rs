@@ -2,27 +2,47 @@ pub mod flags_register;
 pub mod instruction;
 pub mod registers;
 
+use self::instruction::{ArithmeticTarget, Instruction};
 use self::registers::Registers;
-use self::instruction::{Instruction, ArithmeticTarget};
+use crate::memory_bus::MemoryBus;
 
-struct CPU{
+struct CPU {
     registers: Registers,
+    program_counter: u16,
+    stack_pointer: u16,
+    memory_bus: MemoryBus,
 }
 
-impl CPU{
-    fn execute(&mut self, instruction: Instruction) {
+impl CPU {
+    fn step(&mut self) {
+        let mut instruction_byte = self.memory_bus.read_byte(self.program_counter);
+        let prefixed = instruction_byte == 0xCB;
+        if prefixed {
+            instruction_byte = self.memory_bus.read_byte(self.program_counter + 1);
+        }
+        let next_pc: u16 = if let Some(instruction) =
+            Instruction::from_byte(instruction_byte, false)
+        {
+            self.execute(instruction);
+        } else {
+            let description = format!("{:#04x}", if prefixed { "CB" } else { instruction_byte });
+            panic!("Unknown instruction found for: {}", description);
+        };
+
+        self.program_counter = next_pc;
+    }
+    fn execute(&mut self, instruction: Instruction) -> u16 {
         match instruction {
-            Instruction::ADD(target) => {
-                match target{
-                    ArithmeticTarget::C => {
-                        let value = self.registers.c;
-                        let new_value = self.add(value);
-                        self.registers.a = new_value;
-                    }
-                    _ => {}
+            Instruction::ADD(target) => match target {
+                ArithmeticTarget::C => {
+                    let value = self.registers.c;
+                    let new_value = self.add(value);
+                    self.registers.a = new_value;
+                    self.program_counter.wrapping_add(1)
                 }
-            }
-            _ => {}
+                _ => self.program_counter,
+            },
+            _ => self.program_counter,
         }
     }
 
